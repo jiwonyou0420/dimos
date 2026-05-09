@@ -154,6 +154,34 @@ _EXPLORE_COMMANDS = {
     "scan the room",
     "look around",
 }
+_SAFE_SPORT_ACTIONS: dict[str, tuple[str, int]] = {
+    "sit": ("Sit", 1009),
+    "sit down": ("Sit", 1009),
+    "stand": ("BalanceStand", 1002),
+    "balance stand": ("BalanceStand", 1002),
+    "stand up": ("StandUp", 1004),
+    "rise": ("RiseSit", 1010),
+    "rise sit": ("RiseSit", 1010),
+    "get up": ("RiseSit", 1010),
+    "lie down": ("StandDown", 1005),
+    "lay down": ("StandDown", 1005),
+    "stand down": ("StandDown", 1005),
+    "recover": ("RecoveryStand", 1006),
+    "recovery stand": ("RecoveryStand", 1006),
+    "hello": ("Hello", 1016),
+    "say hello": ("Hello", 1016),
+    "wave": ("Hello", 1016),
+    "stretch": ("Stretch", 1017),
+    "Sit".lower(): ("Sit", 1009),
+    "BalanceStand".lower(): ("BalanceStand", 1002),
+    "StandUp".lower(): ("StandUp", 1004),
+    "StandDown".lower(): ("StandDown", 1005),
+    "RecoveryStand".lower(): ("RecoveryStand", 1006),
+    "RiseSit".lower(): ("RiseSit", 1010),
+    "Hello".lower(): ("Hello", 1016),
+    "Stretch".lower(): ("Stretch", 1017),
+}
+_SAFE_SPORT_ACTION_NAMES = {name for name, _api_id in _SAFE_SPORT_ACTIONS.values()}
 _PERSON_LOST_TIMEOUT_S = 2.0
 _PERSON_FOLLOW_TWIST_INTERVAL_S = 0.1
 _PERSON_FOLLOW_DESIRED_DISTANCE_M = 0.8
@@ -239,6 +267,7 @@ class FindObjectTask(Module):
         "NavigationInterface.set_goal",
         "NavigationInterface.is_goal_reached",
         "NavigationInterface.cancel_goal",
+        "GO2Connection.publish_request",
     ]
 
     human_input: In[str]
@@ -442,6 +471,30 @@ class FindObjectTask(Module):
 
         return self._execute_stop()
 
+    def _execute_safe_sport_action(self, action_name: str) -> str:
+        action = _safe_sport_action(action_name)
+        if action is None:
+            allowed = ", ".join(sorted(_SAFE_SPORT_ACTION_NAMES))
+            return f"Unsupported sport action '{action_name}'. Allowed actions: {allowed}."
+
+        canonical_name, api_id = action
+        self._stop_manual_motion(join=True)
+        self._transition_to_idle(
+            f"sport action {canonical_name}",
+            cancel_navigation=True,
+            clear_target=True,
+        )
+
+        try:
+            from unitree_webrtc_connect.constants import RTC_TOPIC
+
+            publish_request = self.get_rpc_calls("GO2Connection.publish_request")
+            publish_request(RTC_TOPIC["SPORT_MOD"], {"api_id": api_id})
+            return f"Executing {canonical_name}."
+        except Exception as exc:
+            logger.warning("Failed to execute safe sport action", exc_info=True)
+            return f"Failed to execute {canonical_name}: {exc}"
+
     def _handle_command(self, text: str, *, source: str) -> str:
         plan = parse_find_object_command(text)
         self._last_plan = plan
@@ -452,6 +505,8 @@ class FindObjectTask(Module):
             message = self._start_person_lock()
         elif plan.intent == "follow_person":
             message = self._start_person_follow()
+        elif plan.intent == "sport_action" and plan.target_text:
+            message = self._execute_safe_sport_action(plan.target_text)
         elif plan.intent == "explore":
             message = self._start_semantic_exploration()
         elif plan.intent == "query_memory" and plan.target_text:
@@ -2094,6 +2149,15 @@ def parse_find_object_command(text: str) -> FindObjectPlan:
     if normalized in _EXPLORE_COMMANDS:
         return FindObjectPlan(intent="explore", raw_text=raw_text, accepted=True)
 
+    sport_action = _safe_sport_action(normalized)
+    if sport_action is not None:
+        return FindObjectPlan(
+            intent="sport_action",
+            raw_text=raw_text,
+            target_text=sport_action[0],
+            accepted=True,
+        )
+
     memory_target = _extract_memory_query_target(normalized)
     if memory_target:
         return FindObjectPlan(
@@ -2144,6 +2208,15 @@ def _is_empty_chair_request(text: str) -> bool:
             "unoccupied chair",
         )
     )
+
+
+def _safe_sport_action(text: str) -> tuple[str, int] | None:
+    normalized = _normalize(text)
+    action = _SAFE_SPORT_ACTIONS.get(normalized)
+    if action:
+        return action
+    trimmed = re.sub(r"\s+(?:please|now|for me)$", "", normalized).strip()
+    return _SAFE_SPORT_ACTIONS.get(trimmed)
 
 
 def _is_empty_chair_target(target_text: str) -> bool:
