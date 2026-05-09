@@ -73,12 +73,16 @@ def _static_base_link(rr: Any) -> list[Any]:
 
 
 def _go2_rerun_blueprint() -> Any:
-    """Split layout: camera feed + 3D world view side by side."""
+    """Split layout: camera/debug image feeds + 3D world view side by side."""
     import rerun.blueprint as rrb
 
     return rrb.Blueprint(
         rrb.Horizontal(
-            rrb.Spatial2DView(origin="world/color_image", name="Camera"),
+            rrb.Vertical(
+                rrb.Spatial2DView(origin="world/color_image", name="Camera"),
+                rrb.Spatial2DView(origin="world/detected_image", name="Detection"),
+                row_shares=[1, 1],
+            ),
             rrb.Spatial3DView(origin="world", name="3D"),
             column_shares=[1, 2],
         ),

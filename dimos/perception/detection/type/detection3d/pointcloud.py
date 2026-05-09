@@ -284,19 +284,39 @@ class Detection3DPC(Detection3D):
         if len(world_points) == 0:
             return None
 
-        # Extract bbox from Detection2D
+        # Prefer segmentation mask membership when available; bbox is the fallback.
+        detection_mask = None
+        mask = getattr(det, "mask", None)
+        if mask is not None and np.any(mask > 0):
+            mask_h, mask_w = mask.shape[:2]
+            scaled_u = np.clip(
+                np.rint(points_2d[:, 0] * (mask_w / image_width)).astype(int),
+                0,
+                mask_w - 1,
+            )
+            scaled_v = np.clip(
+                np.rint(points_2d[:, 1] * (mask_h / image_height)).astype(int),
+                0,
+                mask_h - 1,
+            )
+            detection_mask = mask[scaled_v, scaled_u] > 0
+
+        # Extract bbox from Detection2D for fallback / non-segmentation detections.
         x_min, y_min, x_max, y_max = det.bbox
 
         # Find points within this detection box (with small margin)
         margin = 5  # pixels
-        in_box_mask = (
+        in_bbox_mask = (
             (points_2d[:, 0] >= x_min - margin)
             & (points_2d[:, 0] <= x_max + margin)
             & (points_2d[:, 1] >= y_min - margin)
             & (points_2d[:, 1] <= y_max + margin)
         )
 
-        detection_points = world_points[in_box_mask]
+        if detection_mask is not None and np.any(detection_mask):
+            detection_points = world_points[detection_mask]
+        else:
+            detection_points = world_points[in_bbox_mask]
 
         if detection_points.shape[0] == 0:
             # print(f"No points found in detection bbox after projection. {det.name}")

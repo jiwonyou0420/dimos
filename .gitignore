@@ -48,6 +48,8 @@ data/*
 !data/.lfs/
 FastSAM-x.pt
 yolo11n.pt
+yolo11n-seg.pt
+MUJOCO_LOG.TXT
 
 /thread_monitor_report.csv
 

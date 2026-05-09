@@ -15,7 +15,9 @@
 # limitations under the License.
 
 import base64
+from contextlib import nullcontext
 import json
+import os
 import pickle
 import signal
 import sys
@@ -108,7 +110,14 @@ def _run_simulation(config: GlobalConfig, shm: ShmReader) -> None:
 
     shm.signal_ready()
 
-    with viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=False) as m_viewer:
+    headless = os.environ.get("DIMOS_MUJOCO_HEADLESS", "").lower() in {"1", "true", "yes"}
+    viewer_context = (
+        nullcontext(None)
+        if headless
+        else viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=False)
+    )
+
+    with viewer_context as m_viewer:
         camera_size = (VIDEO_WIDTH, VIDEO_HEIGHT)
 
         # Create renderers
@@ -130,12 +139,13 @@ def _run_simulation(config: GlobalConfig, shm: ShmReader) -> None:
         video_interval = 1.0 / VIDEO_FPS
         lidar_interval = 1.0 / LIDAR_FPS
 
-        m_viewer.cam.lookat = config.mujoco_camera_position_float[0:3]
-        m_viewer.cam.distance = config.mujoco_camera_position_float[3]
-        m_viewer.cam.azimuth = config.mujoco_camera_position_float[4]
-        m_viewer.cam.elevation = config.mujoco_camera_position_float[5]
+        if m_viewer is not None:
+            m_viewer.cam.lookat = config.mujoco_camera_position_float[0:3]
+            m_viewer.cam.distance = config.mujoco_camera_position_float[3]
+            m_viewer.cam.azimuth = config.mujoco_camera_position_float[4]
+            m_viewer.cam.elevation = config.mujoco_camera_position_float[5]
 
-        while m_viewer.is_running() and not shm.should_stop():
+        while (m_viewer is None or m_viewer.is_running()) and not shm.should_stop():
             step_start = time.time()
 
             # Step simulation
@@ -144,7 +154,8 @@ def _run_simulation(config: GlobalConfig, shm: ShmReader) -> None:
 
             person_position_controller.tick(data)
 
-            m_viewer.sync()
+            if m_viewer is not None:
+                m_viewer.sync()
 
             # Always update odometry
             pos = data.qpos[0:3].copy()

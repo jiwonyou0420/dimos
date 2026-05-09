@@ -84,6 +84,8 @@ class LocalPlanner(Resource):
         self._global_config = global_config
         self._navigation_map = navigation_map
         self._goal_tolerance = goal_tolerance
+        if self._global_config.planner_robot_speed is not None:
+            self._speed = self._global_config.planner_robot_speed
 
         self._controller = PController(
             self._global_config,

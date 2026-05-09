@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Labeled 3D entity markers for Rerun visualization.
+"""3D entity markers for Rerun visualization.
 
 Published by modules that track entities in world coordinates.
 The Rerun bridge picks these up via ``to_rerun()`` and renders them
-as labeled colored points overlaid on the 3D scene.
+as colored points overlaid on the 3D scene.
 """
 
 from __future__ import annotations
@@ -35,11 +35,11 @@ from dimos.types.timestamped import Timestamped
 
 # Entity type → RGBA color
 TYPE_COLORS: dict[str, tuple[int, int, int, int]] = {
-    "person": (255, 100, 100, 255),
-    "object": (100, 255, 100, 255),
-    "location": (100, 100, 255, 255),
+    "person": (255, 0, 0, 255),
+    "object": (0, 255, 0, 255),
+    "location": (0, 90, 255, 255),
 }
-DEFAULT_COLOR = (200, 200, 200, 255)
+DEFAULT_COLOR = (255, 255, 255, 255)
 
 
 @dataclass
@@ -55,10 +55,10 @@ class Marker:
 
 
 class EntityMarkers(Timestamped):
-    """A batch of labeled 3D entity markers.
+    """A batch of 3D entity markers.
 
     Wire format: JSON-encoded list of markers over LCM string channel.
-    Rerun: ``rr.Points3D`` with per-point labels and colors.
+    Rerun: ``rr.Points3D`` with per-point colors and optional labels.
     """
 
     msg_name = "visualization_msgs.EntityMarkers"
@@ -125,14 +125,15 @@ class EntityMarkers(Timestamped):
             return rr.Points3D([])
 
         positions = [[m.x, m.y, m.z] for m in self.markers]
-        labels = [f"{m.entity_id}: {m.label[:40]}" for m in self.markers]
+        labels = [f"{m.entity_id}: {m.label[:40]}" if m.label else "" for m in self.markers]
         colors = [TYPE_COLORS.get(m.entity_type, DEFAULT_COLOR) for m in self.markers]
+        labels_arg = labels if any(labels) else None
 
         return rr.Points3D(
             positions=positions,
-            labels=labels,
+            labels=labels_arg,
             colors=colors,
-            radii=[0.15] * len(self.markers),
+            radii=[0.32] * len(self.markers),
         )
 
     # -- LCM compat (so autoconnect assigns LCMTransport, not pLCM) --
