@@ -207,6 +207,28 @@ class FindObjectPlan:
 
 
 @dataclass(frozen=True)
+class _ExternalDetection:
+    """Minimal detection object for external (Jetson) bounding boxes.
+
+    Provides the interface expected by _estimate_detection_pose and
+    Detection3DPC.from_2d: .bbox, .name, .confidence, .center_bbox.
+    """
+
+    name: str
+    confidence: float
+    bbox: tuple[float, float, float, float]  # x1, y1, x2, y2
+
+    @property
+    def center_bbox(self) -> tuple[float, float]:
+        x1, y1, x2, y2 = self.bbox
+        return ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+
+    def bbox_2d_volume(self) -> float:
+        x1, y1, x2, y2 = self.bbox
+        return (x2 - x1) * (y2 - y1)
+
+
+@dataclass(frozen=True)
 class FindObjectDetection:
     target_text: str
     detected_label: str
@@ -494,6 +516,109 @@ class FindObjectTask(Module):
         except Exception as exc:
             logger.warning("Failed to execute safe sport action", exc_info=True)
             return f"Failed to execute {canonical_name}: {exc}"
+
+    @skill
+    def navigate_to_bbox(
+        self,
+        label: str,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        confidence: float = 0.8,
+    ) -> str:
+        """Navigate to an object given its bounding box from external detection.
+
+        Accepts a 2D bounding box (e.g. from an on-board Jetson running YOLO)
+        and uses the existing global point cloud to estimate the 3D position,
+        then navigates to a standoff pose near the object.
+
+        This skips DimOS's own detection step, reducing latency when detection
+        is performed on-board the robot.
+
+        Args:
+            label: The detected object class name (e.g. "chair", "person").
+            x1: Left edge of bounding box in pixels.
+            y1: Top edge of bounding box in pixels.
+            x2: Right edge of bounding box in pixels.
+            y2: Bottom edge of bounding box in pixels.
+            confidence: Detection confidence score (0-1).
+        """
+        with self._lock:
+            image = self._latest_image
+            robot_pose = self._latest_odom
+
+        if image is None:
+            return "No camera image available yet."
+
+        # Create a minimal detection-like object for pose estimation.
+        external_detection = _ExternalDetection(
+            name=label,
+            confidence=confidence,
+            bbox=(x1, y1, x2, y2),
+        )
+
+        pose_estimate = self._estimate_detection_pose(external_detection, image)
+        if pose_estimate.get("error"):
+            return f"Could not estimate 3D pose: {pose_estimate['error']}"
+
+        world_xyz = pose_estimate.get("xyz")
+        if world_xyz is None:
+            return "Pose estimation returned no position."
+
+        robot_xyz = None
+        if robot_pose is not None:
+            robot_xyz = (
+                float(robot_pose.position.x),
+                float(robot_pose.position.y),
+                float(robot_pose.position.z),
+            )
+
+        center_x = (x1 + x2) / 2.0
+        center_y = (y1 + y2) / 2.0
+        area_px = (x2 - x1) * (y2 - y1)
+
+        result = FindObjectDetection(
+            target_text=label,
+            detected_label=label,
+            confidence=confidence,
+            bbox_xyxy=(x1, y1, x2, y2),
+            center_xy=(center_x, center_y),
+            area_px=area_px,
+            image_width=image.width,
+            image_height=image.height,
+            matching_count=1,
+            detected_labels=[label],
+            world_xyz=tuple(float(v) for v in world_xyz),
+            world_frame_id=pose_estimate.get("frame_id"),
+            pose_method=f"external_bbox_{pose_estimate.get('method', 'unknown')}",
+            object_point_count=pose_estimate.get("selected_point_count"),
+            pose_cluster_count=pose_estimate.get("cluster_count"),
+            pose_ambiguity_handled=bool(pose_estimate.get("ambiguity_handled")),
+            robot_xyz=robot_xyz,
+        )
+
+        # Stop any current motion/search and navigate.
+        self._stop_manual_motion(join=True)
+        self._cancel_navigation()
+        planned = self._navigate_to_detection(result)
+
+        with self._lock:
+            self._last_detection = planned
+            self._last_detection_seen_ts = time.time()
+            if planned.navigation_started:
+                self._policy_mode = _POLICY_APPROACHING
+                self._policy_target_text = label
+                self._policy_state_changed_ts = time.time()
+
+        self._publish_object_markers(planned)
+
+        if planned.navigation_started:
+            return (
+                f"Navigating to '{label}' at world position "
+                f"({world_xyz[0]:.2f}, {world_xyz[1]:.2f}, {world_xyz[2]:.2f})."
+            )
+        return f"Detected '{label}' but navigation failed: {planned.navigation_error}"
 
     def _handle_command(self, text: str, *, source: str) -> str:
         plan = parse_find_object_command(text)
