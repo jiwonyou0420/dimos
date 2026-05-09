@@ -83,6 +83,7 @@ all_blueprints = {
     "unitree-go2-detection": "dimos.robot.unitree.go2.blueprints.smart.unitree_go2_detection:unitree_go2_detection",
     "unitree-go2-find-object": "dimos.robot.unitree.go2.blueprints.hackathon.unitree_go2_find_object:unitree_go2_find_object",
     "unitree-go2-fleet": "dimos.robot.unitree.go2.blueprints.basic.unitree_go2_fleet:unitree_go2_fleet",
+    "unitree-go2-hackathon-hybrid": "dimos.robot.unitree.go2.blueprints.hackathon.unitree_go2_hackathon_hybrid:unitree_go2_hackathon_hybrid",
     "unitree-go2-ros": "dimos.robot.unitree.go2.blueprints.smart.unitree_go2_ros:unitree_go2_ros",
     "unitree-go2-spatial": "dimos.robot.unitree.go2.blueprints.smart.unitree_go2_spatial:unitree_go2_spatial",
     "unitree-go2-temporal-memory": "dimos.robot.unitree.go2.blueprints.agentic.unitree_go2_temporal_memory:unitree_go2_temporal_memory",
