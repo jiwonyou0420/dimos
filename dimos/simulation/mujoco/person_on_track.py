@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
+import signal
+import time
 from typing import Any
 
 import mujoco
@@ -158,3 +161,54 @@ class PersonTrackPublisher:
 
     def stop(self) -> None:
         self._transport.stop()
+
+
+def _track_points(name: str) -> list[tuple[float, float]]:
+    match name:
+        case "hackathon":
+            return [
+                (0.15, 0.18),
+                (1.45, 0.55),
+                (2.65, 2.15),
+                (0.65, 3.35),
+                (-1.95, 2.60),
+                (-1.20, 0.40),
+            ]
+        case "office":
+            return [
+                (-1.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 1.0),
+                (-1.0, 1.0),
+            ]
+        case _:
+            raise ValueError(f"Unknown person track: {name}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Move the MuJoCo person body on a loop.")
+    parser.add_argument("--track", default="hackathon", choices=["hackathon", "office"])
+    parser.add_argument("--hz", type=float, default=60.0)
+    args = parser.parse_args()
+
+    publisher = PersonTrackPublisher(_track_points(args.track))
+    stopped = False
+
+    def _stop(_signum: int, _frame: Any) -> None:
+        nonlocal stopped
+        stopped = True
+
+    signal.signal(signal.SIGINT, _stop)
+    signal.signal(signal.SIGTERM, _stop)
+
+    period = 1.0 / args.hz
+    try:
+        while not stopped:
+            publisher.tick()
+            time.sleep(period)
+    finally:
+        publisher.stop()
+
+
+if __name__ == "__main__":
+    main()

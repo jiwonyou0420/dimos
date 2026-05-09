@@ -119,6 +119,10 @@ def get_model_xml(robot: str, scene_xml: str) -> str:
 
 
 def _add_person_object(root: ET.Element) -> None:
+    worldbody = root.find("worldbody")
+    if worldbody is not None and worldbody.find(".//body[@name='person']") is not None:
+        return
+
     asset = root.find("asset")
 
     if asset is None:
@@ -127,8 +131,6 @@ def _add_person_object(root: ET.Element) -> None:
     ET.SubElement(asset, "mesh", name="person_mesh", file="jeong_seun_34.obj")
     ET.SubElement(asset, "texture", name="person_texture", file="material_0.png", type="2d")
     ET.SubElement(asset, "material", name="person_material", texture="person_texture")
-
-    worldbody = root.find("worldbody")
 
     if worldbody is None:
         worldbody = ET.SubElement(root, "worldbody")

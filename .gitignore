@@ -46,6 +46,9 @@ build/
 # Ignore data directory but keep .lfs subdirectory
 data/*
 !data/.lfs/
+!data/mujoco_sim/
+data/mujoco_sim/*
+!data/mujoco_sim/scene_hackathon.xml
 FastSAM-x.pt
 yolo11n.pt
 yolo11n-seg.pt
