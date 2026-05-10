@@ -95,7 +95,67 @@ def make_connection(ip: str | None, cfg: GlobalConfig) -> Go2ConnectionProtocol:
         return MujocoConnection(cfg)
     else:
         assert ip is not None, "IP address must be provided"
-        return UnitreeWebRTCConnection(ip)
+        conn = UnitreeWebRTCConnection(ip)
+        # If an HTTP camera URL is configured, override the video stream
+        # to pull from the Jetson's USB camera instead of WebRTC.
+        http_camera_url = _env_http_camera_url()
+        if http_camera_url:
+            conn = _wrap_with_http_video(conn, http_camera_url)
+        return conn
+
+
+def _env_http_camera_url() -> str | None:
+    """Check for HTTP camera URL in environment variable DIMOS_HTTP_CAMERA_URL."""
+    import os
+    return os.environ.get("DIMOS_HTTP_CAMERA_URL")
+
+
+def _wrap_with_http_video(
+    conn: UnitreeWebRTCConnection, url: str
+) -> UnitreeWebRTCConnection:
+    """Monkey-patch the connection to use an HTTP JPEG source for video.
+
+    All other streams (lidar, odom, data channel) still use WebRTC.
+    Only the video stream is replaced with frames fetched from the HTTP endpoint.
+    """
+    import threading
+    from urllib.request import urlopen
+
+    import cv2
+    import numpy as np
+    from reactivex.subject import Subject
+
+    from dimos.utils.reactive import backpressure
+
+    logger.info("Using HTTP camera at %s instead of WebRTC video", url)
+
+    @simple_mcache
+    def http_video_stream() -> Observable:
+        subject: Subject = Subject()
+        stop_event = threading.Event()
+
+        def fetch_loop():
+            while not stop_event.is_set():
+                try:
+                    resp = urlopen(url, timeout=5)
+                    data = resp.read()
+                    arr = np.frombuffer(data, dtype=np.uint8)
+                    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                    if frame is not None:
+                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        image = Image.from_numpy(
+                            rgb, format=ImageFormat.RGB, frame_id="camera_optical"
+                        )
+                        subject.on_next(image)
+                except Exception:
+                    time.sleep(0.1)
+
+        thread = threading.Thread(target=fetch_loop, daemon=True)
+        thread.start()
+        return backpressure(subject)
+
+    conn.video_stream = http_video_stream  # type: ignore[assignment]
+    return conn
 
 
 class ReplayConnection(UnitreeWebRTCConnection):
